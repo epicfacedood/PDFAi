@@ -6,8 +6,8 @@ const ALLOWED_IPS = [
   "::1", // localhost IPv6
   "192.168.1.0/24", // local network range (adjust as needed)
   // Add your specific IPs here, e.g.:
-  // '203.0.113.1',   // your office IP
-  "118.200.240.101",
+  "118.200.240.101", // existing IP
+  "219.74.90.101", // your current IP
 ];
 
 // Simple IP range check for CIDR notation

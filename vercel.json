@@ -27,9 +27,5 @@
         }
       ]
     }
-  ],
-  "env": {
-    "CLAUDE_API_KEY": "@claude_api_key",
-    "PDF_AI_PASSCODE": "@pdf_ai_passcode"
-  }
+  ]
 }
