@@ -52,8 +52,22 @@ export async function POST(request: NextRequest) {
   try {
     const { text } = await request.json();
 
+    console.log(`\n🤖 AI EXTRACTION - Starting Claude processing:`);
+    console.log(`📄 Input text length: ${text ? text.length : 0} characters`);
+
     if (!text) {
+      console.log(`❌ No text provided to AI extraction`);
       return NextResponse.json({ error: "No text provided" }, { status: 400 });
+    }
+
+    if (text.length > 0) {
+      console.log(
+        `📝 First 300 chars of input text: "${text.substring(0, 300)}${
+          text.length > 300 ? "..." : ""
+        }"`
+      );
+    } else {
+      console.log(`⚠️  WARNING: Input text is empty!`);
     }
 
     const prompt = `Please extract data from the following PDF text and return it in JSON format. The data should include these fields:
@@ -87,6 +101,8 @@ ${text}
 
 Please return ONLY valid JSON without any markdown formatting or explanations. Structure it as an array of objects with products nested if needed, or flatten it into separate rows for each product.`;
 
+    console.log(`🚀 Sending request to Claude Sonnet 4...`);
+
     const message = await anthropic.messages.create({
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 4000,
@@ -98,23 +114,78 @@ Please return ONLY valid JSON without any markdown formatting or explanations. S
       ],
     });
 
+    console.log(`✅ Received response from Claude`);
+    console.log(
+      `📊 Usage: Input tokens: ${message.usage.input_tokens}, Output tokens: ${message.usage.output_tokens}`
+    );
+
     const content = message.content[0];
     if (content.type !== "text") {
+      console.log(`❌ Unexpected response type from Claude: ${content.type}`);
       throw new Error("Unexpected response type from Claude");
     }
 
+    console.log(
+      `📄 Claude raw response length: ${content.text.length} characters`
+    );
+    console.log(`🤖 Claude raw response:\n${content.text}\n`);
+    console.log(
+      `======================== END CLAUDE RESPONSE ========================`
+    );
+
     let rawData: Order | Order[];
     try {
+      console.log(`🔄 Attempting to parse Claude response as JSON...`);
       rawData = JSON.parse(content.text);
-    } catch {
+      console.log(`✅ Successfully parsed JSON directly`);
+    } catch (parseError) {
+      console.log(`⚠️  Direct JSON parsing failed: ${parseError}`);
+      console.log(`🔍 Attempting to extract JSON from response...`);
+
       // If JSON parsing fails, try to extract JSON from the response
       const jsonMatch = content.text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        rawData = JSON.parse(jsonMatch[0]);
+        console.log(
+          `🎯 Found JSON pattern in response: ${jsonMatch[0].substring(
+            0,
+            200
+          )}...`
+        );
+        try {
+          rawData = JSON.parse(jsonMatch[0]);
+          console.log(`✅ Successfully parsed extracted JSON`);
+        } catch (extractError) {
+          console.log(`❌ Failed to parse extracted JSON: ${extractError}`);
+          throw new Error("Could not parse JSON response from Claude");
+        }
       } else {
+        console.log(`❌ No JSON pattern found in Claude response`);
         throw new Error("Could not parse JSON response from Claude");
       }
     }
+
+    console.log(`📋 Parsed data structure:`, JSON.stringify(rawData, null, 2));
+
+    // Handle different response structures from Claude
+    let processedData: Order | Order[];
+
+    // Check if Claude wrapped the data in an "orders" property
+    if (
+      rawData &&
+      typeof rawData === "object" &&
+      "orders" in rawData &&
+      Array.isArray((rawData as any).orders)
+    ) {
+      console.log(`🔧 Detected 'orders' wrapper, extracting array...`);
+      processedData = (rawData as any).orders;
+    } else {
+      processedData = rawData;
+    }
+
+    console.log(
+      `📦 Processed data structure:`,
+      JSON.stringify(processedData, null, 2)
+    );
 
     // Standard UOM mapping
     const standardizeUom = (uom: string): string => {
@@ -230,9 +301,36 @@ Please return ONLY valid JSON without any markdown formatting or explanations. S
       return flattened;
     };
 
-    // Ensure rawData is an array
-    const ordersArray = Array.isArray(rawData) ? rawData : [rawData];
+    // Ensure processedData is an array
+    const ordersArray = Array.isArray(processedData)
+      ? processedData
+      : [processedData];
+    console.log(
+      `📦 Processing ${ordersArray.length} order(s) for flattening...`
+    );
+
     const extractedData = flattenData(ordersArray);
+
+    console.log(`🎯 Final extracted data (${extractedData.length} records):`);
+    extractedData.forEach((record, index) => {
+      console.log(`📄 Record ${index + 1}:`, {
+        orderId: record.orderId,
+        customerName: record.customerName,
+        productCode: record.productCode,
+        productName: record.productName,
+        quantity: record.quantity,
+        uom: record.uom,
+        unitPrice: record.unitPrice,
+      });
+    });
+
+    if (extractedData.length === 0) {
+      console.log(
+        `⚠️  WARNING: No data was extracted! This indicates a problem with the AI processing.`
+      );
+    }
+
+    console.log(`✅ AI extraction completed successfully\n`);
 
     return NextResponse.json({
       success: true,
@@ -240,7 +338,14 @@ Please return ONLY valid JSON without any markdown formatting or explanations. S
       rawResponse: content.text,
     });
   } catch (error) {
+    console.log(`\n❌ AI EXTRACTION ERROR:`);
     console.error("Error extracting data with Claude:", error);
+
+    if (error instanceof Error) {
+      console.log(`Error message: ${error.message}`);
+      console.log(`Error stack: ${error.stack}`);
+    }
+
     return NextResponse.json(
       {
         error: "Failed to extract data with Claude",

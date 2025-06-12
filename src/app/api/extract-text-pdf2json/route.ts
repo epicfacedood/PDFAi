@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     // Create parser instance
     const pdfParser = new (PDFParser as any)(null, 1);
 
-    return new Promise((resolve) => {
+    return new Promise<NextResponse>((resolve) => {
       // Handle parsing errors
       pdfParser.on("pdfParser_dataError", (errData: any) => {
         resolve(
@@ -63,10 +63,16 @@ export async function POST(request: NextRequest) {
         try {
           // Extract text from parsed PDF data
           const pages = pdfData.Pages || [];
+          console.log(`\n📄 PDF2JSON - Processing ${file.name}:`);
+          console.log(`📊 Raw PDF data contains ${pages.length} pages`);
+
           const content = pages
             .map((page: any, pageIndex: number) => {
               const texts = page.Texts || [];
               let pageText = "";
+
+              console.log(`\n📖 Page ${pageIndex + 1}:`);
+              console.log(`   📝 Found ${texts.length} text elements`);
 
               // Sort texts by Y position (top to bottom) then X position (left to right)
               const sortedTexts = texts.sort((a: any, b: any) => {
@@ -90,14 +96,42 @@ export async function POST(request: NextRequest) {
                 }
               }
 
+              const trimmedText = pageText.trim();
+              console.log(
+                `   📄 Page ${pageIndex + 1} extracted text length: ${
+                  trimmedText.length
+                } characters`
+              );
+
+              if (trimmedText.length > 0) {
+                console.log(
+                  `   📝 First 200 chars: "${trimmedText.substring(0, 200)}${
+                    trimmedText.length > 200 ? "..." : ""
+                  }"`
+                );
+              } else {
+                console.log(
+                  `   ⚠️  Page ${pageIndex + 1} is EMPTY - no text extracted!`
+                );
+              }
+
               return {
                 page: pageIndex + 1,
-                text: pageText.trim(),
+                text: trimmedText,
               };
             })
             .filter(
               (page: { page: number; text: string }) => page.text.length > 0
             );
+
+          console.log(`\n📊 PDF2JSON Summary:`);
+          console.log(
+            `   ✅ Successfully extracted ${content.length} pages with content`
+          );
+          console.log(`   📝 Total pages processed: ${pages.length}`);
+          console.log(
+            `   ❌ Empty pages filtered out: ${pages.length - content.length}`
+          );
 
           // Calculate statistics
           const totalPages = content.length;
